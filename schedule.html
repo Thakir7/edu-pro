@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>جدول المتدرب</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div class="title">جدول المتدرب</div>
+    <div class="actions">
+      <a class="btn ghost" href="student.html">رجوع</a>
+    </div>
+  </div>
+
+  <div id="info" class="card"></div>
+
+  <div class="card">
+    <div class="row">
+      <div class="title2">الجدول الأسبوعي</div>
+      <select id="dayFilter">
+        <option value="">الكل</option>
+        <option>الأحد</option><option>الإثنين</option><option>الثلاثاء</option>
+        <option>الأربعاء</option><option>الخميس</option><option>الجمعة</option><option>السبت</option>
+      </select>
+    </div>
+    <div class="tableWrap">
+      <table id="tbl">
+        <thead>
+          <tr><th>اليوم</th><th>الوقت</th><th>المقرر</th><th>القاعة</th><th>الحالة</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="empty" class="muted" style="display:none;margin-top:10px">لا يوجد جدول لهذا المتدرب.</div>
+  </div>
+</div>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+  const s = getSession();
+  if(!s.traineeId){ location.href="index.html"; }
+
+  const info = document.getElementById("info");
+  const tbody = document.querySelector("#tbl tbody");
+  const empty = document.getElementById("empty");
+  const dayFilter = document.getElementById("dayFilter");
+  let rows = [];
+
+  function render(){
+    const d = dayFilter.value;
+    const filtered = d ? rows.filter(x=>x.day===d) : rows;
+    tbody.innerHTML = filtered.map(r=>`
+      <tr>
+        <td>${esc(r.day)}</td>
+        <td>${esc(r.time)}</td>
+        <td>${esc(r.course)}</td>
+        <td>${esc(r.room)}</td>
+        <td><span class="badge">${esc(r.status)}</span></td>
+      </tr>
+    `).join("");
+    empty.style.display = filtered.length ? "none" : "block";
+  }
+
+  (async()=>{
+    const prof = await api({action:"getProfile", traineeId:s.traineeId});
+    if(prof.ok){
+      const p = prof.profile;
+      info.innerHTML = `
+        <div class="title2">${esc(p.name)} • ${esc(s.traineeId)}</div>
+        <div class="muted">المرشد الأكاديمي: ${esc(p.advisor)} — الحالة: ${esc(p.status)}</div>
+      `;
+    }
+    const res = await api({action:"getSchedule", traineeId:s.traineeId});
+    rows = res.ok ? (res.rows||[]) : [];
+    render();
+  })();
+
+  dayFilter.onchange = render;
+</script>
+</body>
+</html>
