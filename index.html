@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>بوابة المتدرب</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>بوابة المتدرب</h1>
+      <p class="muted">أدخل الرقم التدريبي للدخول</p>
+      <input id="tid" placeholder="الرقم التدريبي" />
+      <button id="btn">دخول</button>
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/app.js"></script>
+  <script>
+    const msg = document.getElementById("msg");
+    document.getElementById("btn").onclick = async () => {
+      msg.textContent = "جارِ التحقق...";
+      const traineeId = document.getElementById("tid").value.trim();
+      const res = await api({ action:"getProfile", traineeId });
+      if(!res.ok){ msg.textContent = "لم يتم العثور على بيانات المتدرب."; return; }
+      setSession({ traineeId, profile: res.profile });
+      location.href = "student.html";
+    };
+  </script>
+</body>
+</html>
