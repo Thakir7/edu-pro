@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>التذاكر</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div class="title">التذاكر</div>
+    <div class="actions"><a class="btn ghost" href="student.html">رجوع</a></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="title2">إضافة طلب</div>
+      <button class="btn" id="toggle">+ إضافة طلب</button>
+    </div>
+
+    <div id="form" style="display:none;margin-top:12px">
+      <div class="grid2">
+        <div>
+          <label>عنوان الطلب (إجباري)</label>
+          <input id="title" placeholder="مثال: تعديل في الجدول" />
+        </div>
+        <div>
+          <label>الرقم التدريبي</label>
+          <input id="tid" disabled />
+        </div>
+      </div>
+
+      <label style="margin-top:10px">نص الطلب</label>
+      <textarea id="body" rows="5" placeholder="اكتب تفاصيل الطلب..."></textarea>
+
+      <div class="row" style="margin-top:10px">
+        <div id="msg" class="muted"></div>
+        <button class="btn" id="send">إرسال</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="title2">قائمة الطلبات</div>
+    <div class="tableWrap">
+      <table id="tbl">
+        <thead>
+          <tr><th>الطلب</th><th>تاريخ رفع الطلب</th><th>الرد</th><th>الحالة</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="empty" class="muted" style="display:none;margin-top:10px">لا توجد طلبات حتى الآن.</div>
+  </div>
+</div>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+  const s = getSession();
+  if(!s.traineeId){ location.href="index.html"; }
+
+  document.getElementById("tid").value = s.traineeId;
+  const form = document.getElementById("form");
+  const toggle = document.getElementById("toggle");
+  const tbody = document.querySelector("#tbl tbody");
+  const empty = document.getElementById("empty");
+  const msg = document.getElementById("msg");
+
+  toggle.onclick = ()=> form.style.display = (form.style.display==="none"?"block":"none");
+
+  async function load(){
+    const res = await api({action:"listTickets", traineeId:s.traineeId});
+    const list = res.ok ? (res.tickets||[]) : [];
+    tbody.innerHTML = list.map(t=>`
+      <tr>
+        <td>${esc(t.title)}</td>
+        <td>${esc(t.createdAt)}</td>
+        <td>${esc(t.reply || "—")}</td>
+        <td><span class="badge ${t.status==='Closed'?'bGray':''}">${esc(t.status)}</span></td>
+      </tr>
+    `).join("");
+    empty.style.display = list.length ? "none" : "block";
+  }
+
+  document.getElementById("send").onclick = async ()=>{
+    msg.textContent = "";
+    const title = document.getElementById("title").value.trim();
+    const body  = document.getElementById("body").value.trim();
+    if(!title){ msg.textContent = "عنوان الطلب إجباري."; return; }
+    if(!body){ msg.textContent = "نص الطلب مطلوب."; return; }
+
+    const traineeName = (s.profile?.name) || "";
+    msg.textContent = "جارِ الإرسال...";
+    const res = await api({action:"createTicket", traineeId:s.traineeId, traineeName, title, body});
+    if(!res.ok){ msg.textContent = "فشل الإرسال."; return; }
+
+    document.getElementById("title").value = "";
+    document.getElementById("body").value = "";
+    form.style.display = "none";
+    msg.textContent = "تم إرسال الطلب.";
+    await load();
+  };
+
+  load();
+</script>
+</body>
+</html>
