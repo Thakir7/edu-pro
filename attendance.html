@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>حضوري</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div class="title">حضوري</div>
+    <div class="actions"><a class="btn ghost" href="student.html">رجوع</a></div>
+  </div>
+
+  <div id="info" class="card"></div>
+
+  <div class="card">
+    <div class="title2">سجل الحضور</div>
+    <div class="tableWrap">
+      <table id="tbl">
+        <thead><tr id="th"></tr></thead>
+        <tbody><tr id="tr"></tr></tbody>
+      </table>
+    </div>
+    <div id="empty" class="muted" style="display:none;margin-top:10px">لا توجد بيانات حضور لهذا المتدرب.</div>
+  </div>
+</div>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+  const s = getSession();
+  if(!s.traineeId){ location.href="index.html"; }
+
+  const info = document.getElementById("info");
+  const th = document.getElementById("th");
+  const tr = document.getElementById("tr");
+  const empty = document.getElementById("empty");
+
+  (async()=>{
+    const prof = await api({action:"getProfile", traineeId:s.traineeId});
+    if(prof.ok){
+      const p = prof.profile;
+      info.innerHTML = `<div class="title2">${esc(p.name)} • ${esc(s.traineeId)}</div>
+                        <div class="muted">الشعبة: ${esc(p.group)} — الحالة: ${esc(p.status)}</div>`;
+    }
+
+    const res = await api({action:"getMyAttendance", traineeId:s.traineeId});
+    if(!res.ok || !res.row){ empty.style.display="block"; return; }
+
+    // نخفي عمود الاسم/الرقم ونظهر الأسابيع فقط (من C إلى آخر)
+    const headers = res.headers;
+    const row = res.row;
+
+    // افتراض: A=اسم, B=رقم. نعرض من C فصاعدًا
+    const start = 2;
+
+    th.innerHTML = headers.slice(start).map(h=>`<th>${esc(h)}</th>`).join("");
+    tr.innerHTML = row.slice(start).map(v=>`<td><span class="badge">${esc(v)}</span></td>`).join("");
+  })();
+</script>
+</body>
+</html>
