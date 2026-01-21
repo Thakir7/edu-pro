@@ -1,57 +1,151 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>سجل الحضور</title>
-
   <link rel="stylesheet" href="assets/style.css">
   <script src="assets/config.js"></script>
   <script src="assets/app.js"></script>
+  <style>
+    .cardX{background:#fff;border-radius:18px;padding:16px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+    .title{font-size:22px;font-weight:900;margin:0}
+    .sub{opacity:.7;margin-top:6px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+    .btn{padding:10px 14px;border-radius:14px;border:0;cursor:pointer;font-weight:800}
+    .btn.ghost{background:#f2f4f7;color:#111}
+    .pill{background:#f2f4f7;border-radius:999px;padding:6px 10px;font-weight:800;font-size:13px}
+    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border-radius:16px}
+    th,td{padding:10px 10px;border-bottom:1px solid #eee;font-size:14px;text-align:center;white-space:nowrap}
+    th{background:#fafbfc;font-weight:900}
+    tbody tr:nth-child(even){background:#fcfcfd}
+    .status{font-weight:900}
+    .status.present{color:#0a7a3b}
+    .status.absent{color:#b00020}
+    .status.excused{color:#b36b00}
+    .note{margin-top:10px;font-weight:800}
+    .note.err{color:#b00020}
+    .note.ok{color:#0a7a3b}
+    .wrap{overflow:auto}
+  </style>
 </head>
+
 <body>
+<div class="container">
+  <div class="topbar">
+    <div class="brand">سجل الحضور</div>
+    <div class="actions">
+      <button class="btn ghost" onclick="history.back()">رجوع</button>
+    </div>
+  </div>
 
-<h2 id="pageTitle">سجل الحضور</h2>
+  <div class="cardX">
+    <div class="row">
+      <div>
+        <h1 class="title" id="who">...</h1>
+        <div class="sub" id="meta">...</div>
+      </div>
+      <div class="pill" id="summary">...</div>
+    </div>
 
-<div id="tableBox"></div>
+    <div id="msg" class="note"></div>
+
+    <div class="wrap" id="tableWrap" style="display:none">
+      <table id="attTable"></table>
+    </div>
+  </div>
+</div>
 
 <script>
-(function(){
-  const params = new URLSearchParams(window.location.search);
-  const group = params.get("group");
+(async function initAttendance(){
+  const s = requireSession();
+  if(!s) return;
 
-  if (!group) {
-    document.getElementById("tableBox").innerHTML =
-      "<div class='alert'>لم يتم تحديد رقم الشعبة</div>";
+  // تأكيد/تحديث البروفايل (لو ناقص group)
+  if(!s.group){
+    const prof = await apiCall({action:"getProfile", traineeId:s.traineeId});
+    const t = prof.trainee || prof.student || prof.data || prof.profile || null;
+    if(prof.ok && t){
+      localStorage.setItem("edu_session", JSON.stringify({...s, ...t}));
+    }
+  }
+
+  const ssn = getSession();
+  document.getElementById("who").textContent = (ssn.name || "متدرب");
+  document.getElementById("meta").textContent = `الرقم: ${ssn.traineeId} • الشعبة: ${ssn.group || "-"}`;
+
+  // جلب الحضور
+  const res = await apiCall({action:"getMyAttendance", traineeId:ssn.traineeId});
+  if(!res.ok){
+    showMsg(res.message || "تعذر جلب الحضور", true);
+    document.getElementById("summary").textContent = "—";
     return;
   }
-const params = new URLSearchParams(location.search);
-let group = params.get("group");
 
-// ✅ لو ما فيه group بالرابط، خذه من جلسة المتدرب
-if (!group) {
-  try {
-    const s = JSON.parse(localStorage.edu_session || "{}");
-    group = s.group || s.traineeGroup || "";
-  } catch(e){}
+  // إذا ما فيه صف للمتدرب
+  if(!res.row){
+    showMsg("لا توجد بيانات حضور لهذا المتدرب.", true);
+    document.getElementById("summary").textContent = "حاضر 0 • غائب 0 • مستأذن 0";
+    return;
+  }
+
+  // headers + row
+  const headers = (res.headers || []).map(x => String(x||"").trim());
+  const row = res.row;
+
+  // عادة C..R أسابيع. نعرض فقط من C إلى آخر عنوان أسبوع موجود
+  // نبحث عن أول عمود أسبوع = من C (index 2)
+  const startIdx = 2;
+  let endIdx = headers.length - 1;
+
+  // قص نهايات فاضية
+  while(endIdx >= startIdx && !headers[endIdx]) endIdx--;
+
+  // بناء جدول: أسبوع / الحالة
+  const table = document.getElementById("attTable");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th style="min-width:140px">الأسبوع</th>
+        <th style="min-width:140px">الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        headers.slice(startIdx, endIdx+1).map((h, i) => {
+          const v = String(row[startIdx+i] || "").trim();
+          const cls = v==="حاضر" ? "present" : (v==="غائب" ? "absent" : (v==="مستأذن" ? "excused" : ""));
+          const vShow = v || "—";
+          const hShow = h || `الأسبوع ${i+1}`;
+          return `<tr><td>${escapeHtml(hShow)}</td><td class="status ${cls}">${escapeHtml(vShow)}</td></tr>`;
+        }).join("")
+      }
+    </tbody>
+  `;
+
+  // ملخص
+  const vals = row.slice(startIdx, endIdx+1).map(x=>String(x||"").trim());
+  const حاضر = vals.filter(v=>v==="حاضر").length;
+  const غائب = vals.filter(v=>v==="غائب").length;
+  const مستأذن = vals.filter(v=>v==="مستأذن").length;
+  document.getElementById("summary").textContent = `حاضر ${حاضر} • غائب ${غائب} • مستأذن ${مستأذن}`;
+
+  document.getElementById("tableWrap").style.display = "";
+  showMsg("تم تحميل الحضور بنجاح.", false);
+
+})();
+
+function showMsg(text, isErr){
+  const el = document.getElementById("msg");
+  el.textContent = text || "";
+  el.className = "note " + (isErr ? "err" : "ok");
 }
 
-  document.getElementById("pageTitle").textContent =
-    "سجل الحضور – شعبة " + group;
-
-  fetch(window.API_URL,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({
-      action:"coach_getAttendance",
-      group: group
-    })
-  })
-  .then(r=>r.json())
-  .then(res=>{
-    renderSheetTable("tableBox", res);
-  });
-})();
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
 </script>
-
 </body>
 </html>
