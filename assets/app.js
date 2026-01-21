@@ -1,51 +1,16 @@
 // ===============================
-// TABLE RENDER (Attendance & Grades)
+// EDU-PRO app.js (إنقاذ واستقرار)
 // ===============================
-function renderSheetTable(containerId, res) {
-  const box = document.getElementById(containerId);
-  if (!box) return;
 
-  if (!res || !res.ok) {
-    box.innerHTML = `<div class="alert">خطأ في جلب البيانات</div>`;
-    return;
-  }
-
-  if (!res.rows || res.rows.length === 0) {
-    box.innerHTML = `<div class="alert">لا توجد بيانات</div>`;
-    return;
-  }
-
-  const headers = res.headers;
-  const rows = res.rows;
-
-  box.innerHTML = `
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            ${headers.map(h => `<th>${h}</th>`).join("")}
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(r => `
-            <tr>
-              ${r.map(c => `<td>${c ?? ""}</td>`).join("")}
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-// ====== Session Helpers (إنقاذ سريع) ======
-window.getSession = function(){
-  try { return JSON.parse(localStorage.getItem("edu_session")||"null"); }
-  catch(e){ return null; }
+// ✅ Session
+window.getSession = function () {
+  try { return JSON.parse(localStorage.getItem("edu_session") || "null"); }
+  catch (e) { return null; }
 };
 
-window.requireSession = function(){
+window.requireSession = function () {
   const s = window.getSession();
-  if(!s || !s.traineeId){
+  if (!s || !s.traineeId) {
     localStorage.removeItem("edu_session");
     location.replace("index.html");
     return null;
@@ -53,17 +18,30 @@ window.requireSession = function(){
   return s;
 };
 
-window.logout = function(){
+window.logout = function () {
   localStorage.removeItem("edu_session");
   location.replace("index.html");
 };
 
-// نداء API موحد
-window.apiCall = async function(payload){
-  const r = await fetch(window.API_URL,{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
+// ✅ API call
+window.apiCall = async function (payload) {
+  if (!window.API_URL) {
+    return { ok: false, message: "API_URL غير معرف في assets/config.js" };
+  }
+  const r = await fetch(window.API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
   return await r.json();
+};
+
+// ✅ util: get group from URL or session
+window.getGroup = function () {
+  const params = new URLSearchParams(location.search);
+  let g = params.get("group");
+  if (g) return g;
+
+  const s = window.getSession();
+  return (s && s.group) ? s.group : "";
 };
