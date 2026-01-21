@@ -5,75 +5,109 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>لوحة المتدرب</title>
   <link rel="stylesheet" href="assets/style.css">
-</head>
-<body>
-  <div class="container">
-    <div class="topbar">
-      <div>
-        <div class="title">لوحة المتدرب</div>
-        <div id="sub" class="muted"></div>
-      </div>
-      <button class="btn ghost" onclick="clearSession();location.href='index.html'">خروج</button>
-    </div>
-
-    <div class="grid">
-      <a class="tile" href="schedule.html">
-        <div class="ico">🗓️</div>
-        <div>
-          <div class="t">جدول المتدرب</div>
-          <div class="muted">اليوم • الوقت • القاعة • المقرر</div>
-        </div>
-      </a>
-
-      <a class="tile" href="tickets.html">
-        <div class="ico">🎫</div>
-        <div>
-          <div class="t">التذاكر</div>
-          <div class="muted">إضافة طلب ومتابعة الردود</div>
-        </div>
-      </a>
-
-      <a class="tile" href="#" onclick="alert('خطة المنهج: سنربطها بورقة Plan لاحقاً');return false;">
-        <div class="ico">📘</div>
-        <div>
-          <div class="t">خطة المنهج</div>
-          <div class="muted">عرض الخطة بشكل جدولي</div>
-        </div>
-      </a>
-<a class="tile" href="attendance.html">
-  <div class="ico">✅</div>
-  <div>
-    <div class="t">حضوري</div>
-    <div class="muted">عرض سجل الحضور أسبوعيًا</div>
-  </div>
-</a>
-
-<a class="tile" href="grades.html">
-  <div class="ico">📊</div>
-  <div>
-    <div class="t">درجاتي</div>
-    <div class="muted">عرض الدرجات بشكل مرتب</div>
-  </div>
-</a>
-
-<button class="btn" onclick="logout()">خروج</button>
-
-<script>
-function logout(){
-  localStorage.removeItem("edu_session");
-  location.href = "index.html";
-}
-</script>
-
-
   <script src="assets/config.js"></script>
   <script src="assets/app.js"></script>
-  <script>
-    const s = getSession();
-    if(!s.traineeId){ location.href="index.html"; }
-    const p = s.profile || {};
-    document.getElementById("sub").textContent =
-      `${p.name || ""} • ${s.traineeId} • ${p.advisor || ""} • ${p.status || ""}`;
-  </script>
+
+  <style>
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+    .cardX{background:#fff;border-radius:18px;padding:16px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+    .title{font-size:22px;font-weight:900;margin:0}
+    .sub{opacity:.7;margin-top:6px}
+    .btnRow{display:flex;gap:10px;flex-wrap:wrap}
+    .btn{padding:10px 14px;border-radius:14px;border:0;cursor:pointer;font-weight:800}
+    .btn.dark{background:#111;color:#fff}
+    .btn.ghost{background:#f2f4f7;color:#111}
+    .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+    @media (max-width:900px){.cards{grid-template-columns:1fr}}
+    a.cardLink{display:flex;justify-content:space-between;align-items:center;gap:10px;text-decoration:none;color:inherit}
+    .icon{width:42px;height:42px;border-radius:14px;background:#f2f4f7;display:flex;align-items:center;justify-content:center;font-size:22px}
+    .small{font-size:13px;opacity:.75}
+  </style>
+</head>
+
+<body>
+<div class="container">
+  <div class="topbar">
+    <div class="brand">لوحة المتدرب</div>
+    <div class="actions">
+      <button class="btn ghost" onclick="logout()">خروج</button>
+    </div>
+  </div>
+
+  <div class="cardX">
+    <h1 class="title" id="stuName">...</h1>
+    <div class="sub" id="stuMeta">...</div>
+  </div>
+
+  <div class="cards">
+    <a class="cardX cardLink" href="attendance.html">
+      <div>
+        <div style="font-weight:900">سجل الحضور</div>
+        <div class="small">عرض الحضور الأسبوعي</div>
+      </div>
+      <div class="icon">📌</div>
+    </a>
+
+    <a class="cardX cardLink" href="grades.html">
+      <div>
+        <div style="font-weight:900">كشف الدرجات</div>
+        <div class="small">عرض الدرجات والتفاصيل</div>
+      </div>
+      <div class="icon">🧾</div>
+    </a>
+
+    <a class="cardX cardLink" href="plan.html">
+      <div>
+        <div style="font-weight:900">خطة المنهج</div>
+        <div class="small">عرض الخطة بشكل جدولي</div>
+      </div>
+      <div class="icon">📚</div>
+    </a>
+
+    <a class="cardX cardLink" href="schedule.html">
+      <div>
+        <div style="font-weight:900">جدول المتدرب</div>
+        <div class="small">اليوم • الوقت • القاعة • المقرر</div>
+      </div>
+      <div class="icon">🗓️</div>
+    </a>
+
+    <a class="cardX cardLink" href="services.html">
+      <div>
+        <div style="font-weight:900">التذاكر</div>
+        <div class="small">إضافة طلب ومتابعة الرد</div>
+      </div>
+      <div class="icon">🎫</div>
+    </a>
+  </div>
+</div>
+
+<script>
+(async function initStudent(){
+  // ✅ لا تسمح بفتح الصفحة بدون جلسة
+  const s = requireSession();
+  if (!s) return;
+
+  // ✅ جلب بروفايل المتدرب من الشيت (لتأكيد الشعبة)
+  const prof = await apiCall({ action:"getProfile", traineeId: s.traineeId });
+
+  if(!prof.ok){
+    // جلسة غير صحيحة
+    localStorage.removeItem("edu_session");
+    location.replace("index.html");
+    return;
+  }
+
+  // ✅ تحديث الجلسة بالشعبة (إذا كانت ناقصة)
+  const session = { ...s, ...prof.trainee };
+  localStorage.setItem("edu_session", JSON.stringify(session));
+
+  document.getElementById("stuName").textContent = session.name || "متدرب";
+  document.getElementById("stuMeta").textContent =
+    `الرقم التدريبي: ${session.traineeId} • الشعبة: ${session.group || "-"} • المرشد الأكاديمي: ${session.advisor || "-"}`;
+
+})();
+</script>
 </body>
 </html>
