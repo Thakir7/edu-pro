@@ -3,32 +3,108 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>بوابة المتدرب</title>
+  <title>بوابة الدخول</title>
   <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/config.js"></script>
+  <script src="assets/app.js"></script>
+
+  <style>
+    body{background:#f6f7fb}
+    .wrap{max-width:540px;margin:60px auto;padding:0 14px}
+    .card{background:#fff;border-radius:22px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    h1{margin:0 0 12px;font-size:26px}
+    .sub{opacity:.75;margin-bottom:14px}
+    input{width:100%;padding:14px;border:2px solid #e7e9ee;border-radius:16px;font-size:18px;outline:0}
+    input:focus{border-color:#111}
+    .row{display:flex;gap:10px;align-items:center;margin-top:12px}
+    .btn{flex:1;padding:12px 14px;border-radius:16px;border:0;cursor:pointer;font-weight:900}
+    .btn.dark{background:#111;color:#fff}
+    .btn.ghost{background:#f2f4f7;color:#111}
+    .msg{margin-top:12px;font-weight:800}
+    .msg.ok{color:#0a7a3b}
+    .msg.err{color:#b00020}
+    .hint{margin-top:14px;font-size:13px;opacity:.7;line-height:1.6}
+  </style>
 </head>
+
 <body>
-  <div class="container">
+  <div class="wrap">
     <div class="card">
-      <h1>بوابة المتدرب</h1>
-      <p class="muted">أدخل الرقم التدريبي للدخول</p>
-      <input id="tid" placeholder="الرقم التدريبي" />
-      <button id="btn">دخول</button>
-      <div id="msg" class="msg"></div>
+      <h1>تسجيل الدخول</h1>
+      <div class="sub">اكتب رقمك التدريبي ثم دخول</div>
+
+      <input id="traineeId" inputmode="numeric" placeholder="الرقم التدريبي" autocomplete="off" />
+
+      <div class="row">
+        <button id="loginBtn" class="btn dark" onclick="doLogin()">دخول</button>
+        <button class="btn ghost" onclick="clearAll()">مسح</button>
+      </div>
+
+      <div id="status" class="msg"></div>
+
+      <div class="hint">
+        إذا علّق الدخول: افتح الصفحة في نافذة خاصة أو اضغط “مسح” ثم حاول مرة أخرى.
+      </div>
     </div>
   </div>
 
-  <script src="assets/config.js"></script>
-  <script src="assets/app.js"></script>
-  <script>
-    const msg = document.getElementById("msg");
-    document.getElementById("btn").onclick = async () => {
-      msg.textContent = "جارِ التحقق...";
-      const traineeId = document.getElementById("tid").value.trim();
-      const res = await api({ action:"getProfile", traineeId });
-      if(!res.ok){ msg.textContent = "لم يتم العثور على بيانات المتدرب."; return; }
-      setSession({ traineeId, profile: res.profile });
-      location.href = "student.html";
+<script>
+function setStatus(text, type){
+  const el = document.getElementById("status");
+  el.textContent = text || "";
+  el.className = "msg " + (type || "");
+}
+
+function setLoading(isLoading){
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? "جاري الفتح..." : "دخول";
+}
+
+function clearAll(){
+  localStorage.removeItem("edu_session");
+  document.getElementById("traineeId").value = "";
+  setStatus("", "");
+}
+
+async function doLogin(){
+  try{
+    const traineeId = (document.getElementById("traineeId").value || "").trim();
+    if(!traineeId){
+      setStatus("اكتب الرقم التدريبي.", "err");
+      return;
+    }
+
+    setStatus("", "");
+    setLoading(true);
+
+    // ✅ يعتمد فقط على getProfile
+    const res = await apiCall({ action:"getProfile", traineeId });
+
+    if(!res || !res.ok){
+      setStatus((res && res.message) ? res.message : "فشل الدخول. تحقق من الرقم.", "err");
+      setLoading(false);
+      return;
+    }
+
+    const session = {
+      traineeId: res.trainee.traineeId,
+      name: res.trainee.name,
+      group: res.trainee.group,
+      advisor: res.trainee.advisor
     };
-  </script>
+
+    localStorage.setItem("edu_session", JSON.stringify(session));
+    setStatus("تم الدخول بنجاح…", "ok");
+
+    // ✅ انتقال
+    location.href = "student.html";
+
+  }catch(err){
+    setStatus("حدث خطأ: " + String(err), "err");
+    setLoading(false);
+  }
+}
+</script>
 </body>
 </html>
