@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>سجل الحضور</title>
   <link rel="stylesheet" href="assets/style.css">
-  <script src="assets/config.js"></script>
-  <script src="assets/app.js"></script>
+
   <style>
     .cardX{background:#fff;border-radius:18px;padding:16px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
     .title{font-size:22px;font-weight:900;margin:0}
@@ -20,12 +19,12 @@
     th{background:#fafbfc;font-weight:900}
     tbody tr:nth-child(even){background:#fcfcfd}
     .status{font-weight:900}
-    .status.present{color:#0a7a3b}
-    .status.absent{color:#b00020}
-    .status.excused{color:#b36b00}
+    .present{color:#0a7a3b}
+    .absent{color:#b00020}
+    .excused{color:#b36b00}
     .note{margin-top:10px;font-weight:800}
-    .note.err{color:#b00020}
-    .note.ok{color:#0a7a3b}
+    .err{color:#b00020}
+    .ok{color:#0a7a3b}
     .wrap{overflow:auto}
   </style>
 </head>
@@ -57,58 +56,84 @@
 </div>
 
 <script>
-(async function initAttendance(){
+/** ضع رابط GAS هنا إن لم يكن موجوداً في config.js */
+const API_URL =
+  (window.API_URL) ||
+  "https://script.google.com/macros/s/AKfycbwctlBBCWzQGHLOxIPum2w_5HX7zAB2LoSbgSrWGRNAm7X1pWakHoVzNAxROY69WvCZ/exec";
+
+function getSession(){
+  try{ return JSON.parse(localStorage.getItem("edu_session")||"null"); }catch(e){ return null; }
+}
+function requireSession(){
+  const s = getSession();
+  if(!s || !s.traineeId){
+    localStorage.removeItem("edu_session");
+    location.replace("index.html");
+    return null;
+  }
+  return s;
+}
+async function apiCall(payload){
+  const r = await fetch(API_URL,{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload||{})
+  });
+  return await r.json();
+}
+
+function showMsg(text, isErr){
+  const el = document.getElementById("msg");
+  el.textContent = text || "";
+  el.className = "note " + (isErr ? "err" : "ok");
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
+
+(async function init(){
   const s = requireSession();
   if(!s) return;
 
-  // تأكيد/تحديث البروفايل (لو ناقص group)
-  if(!s.group){
-    const prof = await apiCall({action:"getProfile", traineeId:s.traineeId});
-    const t = prof.trainee || prof.student || prof.data || prof.profile || null;
-    if(prof.ok && t){
-      localStorage.setItem("edu_session", JSON.stringify({...s, ...t}));
-    }
-  }
-
-  const ssn = getSession();
-  document.getElementById("who").textContent = (ssn.name || "متدرب");
-  document.getElementById("meta").textContent = `الرقم: ${ssn.traineeId} • الشعبة: ${ssn.group || "-"}`;
+  document.getElementById("who").textContent = s.name || "متدرب";
+  document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشعبة: ${s.group || "-"}`;
+  document.getElementById("summary").textContent = "جارٍ التحميل...";
 
   // جلب الحضور
-  const res = await apiCall({action:"getMyAttendance", traineeId:ssn.traineeId});
+  const res = await apiCall({action:"getMyAttendance", traineeId:s.traineeId});
+  console.log("ATT_RES", res);
+
   if(!res.ok){
-    showMsg(res.message || "تعذر جلب الحضور", true);
     document.getElementById("summary").textContent = "—";
+    showMsg(res.message || "تعذر جلب الحضور", true);
     return;
   }
 
-  // إذا ما فيه صف للمتدرب
   if(!res.row){
-    showMsg("لا توجد بيانات حضور لهذا المتدرب.", true);
     document.getElementById("summary").textContent = "حاضر 0 • غائب 0 • مستأذن 0";
+    showMsg("لا توجد بيانات حضور لهذا المتدرب.", true);
     return;
   }
 
-  // headers + row
   const headers = (res.headers || []).map(x => String(x||"").trim());
   const row = res.row;
 
-  // عادة C..R أسابيع. نعرض فقط من C إلى آخر عنوان أسبوع موجود
-  // نبحث عن أول عمود أسبوع = من C (index 2)
-  const startIdx = 2;
+  const startIdx = 2; // C
   let endIdx = headers.length - 1;
-
-  // قص نهايات فاضية
   while(endIdx >= startIdx && !headers[endIdx]) endIdx--;
 
-  // بناء جدول: أسبوع / الحالة
+  const vals = row.slice(startIdx, endIdx+1).map(x=>String(x||"").trim());
+  const حاضر = vals.filter(v=>v==="حاضر").length;
+  const غائب = vals.filter(v=>v==="غائب").length;
+  const مستأذن = vals.filter(v=>v==="مستأذن").length;
+  document.getElementById("summary").textContent = `حاضر ${حاضر} • غائب ${غائب} • مستأذن ${مستأذن}`;
+
   const table = document.getElementById("attTable");
   table.innerHTML = `
     <thead>
-      <tr>
-        <th style="min-width:140px">الأسبوع</th>
-        <th style="min-width:140px">الحالة</th>
-      </tr>
+      <tr><th style="min-width:140px">الأسبوع</th><th style="min-width:140px">الحالة</th></tr>
     </thead>
     <tbody>
       ${
@@ -123,29 +148,9 @@
     </tbody>
   `;
 
-  // ملخص
-  const vals = row.slice(startIdx, endIdx+1).map(x=>String(x||"").trim());
-  const حاضر = vals.filter(v=>v==="حاضر").length;
-  const غائب = vals.filter(v=>v==="غائب").length;
-  const مستأذن = vals.filter(v=>v==="مستأذن").length;
-  document.getElementById("summary").textContent = `حاضر ${حاضر} • غائب ${غائب} • مستأذن ${مستأذن}`;
-
   document.getElementById("tableWrap").style.display = "";
   showMsg("تم تحميل الحضور بنجاح.", false);
-
 })();
-
-function showMsg(text, isErr){
-  const el = document.getElementById("msg");
-  el.textContent = text || "";
-  el.className = "note " + (isErr ? "err" : "ok");
-}
-
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, m => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[m]));
-}
 </script>
 </body>
 </html>
