@@ -24,6 +24,16 @@
       "<div class='alert'>لم يتم تحديد رقم الشعبة</div>";
     return;
   }
+const params = new URLSearchParams(location.search);
+let group = params.get("group");
+
+// ✅ لو ما فيه group بالرابط، خذه من جلسة المتدرب
+if (!group) {
+  try {
+    const s = JSON.parse(localStorage.edu_session || "{}");
+    group = s.group || s.traineeGroup || "";
+  } catch(e){}
+}
 
   document.getElementById("pageTitle").textContent =
     "سجل الحضور – شعبة " + group;
