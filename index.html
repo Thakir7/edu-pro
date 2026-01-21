@@ -87,12 +87,23 @@ async function doLogin(){
       return;
     }
 
-    const session = {
-      traineeId: res.trainee.traineeId,
-      name: res.trainee.name,
-      group: res.trainee.group,
-      advisor: res.trainee.advisor
-    };
+    const t = res.trainee || res.student || res.data || res.profile || null;
+
+if(!t || !(t.traineeId || t.id || res.traineeId)){
+  setStatus("تم الاتصال ولكن بيانات المتدرب غير مكتملة (لا يوجد trainee).", "err");
+  setLoading(false);
+  return;
+}
+
+const traineeIdFixed = (t.traineeId || t.id || res.traineeId || "").toString().trim();
+
+const session = {
+  traineeId: traineeIdFixed,
+  name: (t.name || t.fullName || res.name || "").toString().trim(),
+  group: (t.group || t.section || t.class || "").toString().trim(),
+  advisor: (t.advisor || t.advisorName || "").toString().trim()
+};
+
 
     localStorage.setItem("edu_session", JSON.stringify(session));
     setStatus("تم الدخول بنجاح…", "ok");
