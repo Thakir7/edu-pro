@@ -57,8 +57,7 @@
 
 <script>
 /**
- * ✅ رابط Web App الخاص بـ Apps Script (exec)
- * إذا غيرت النشر لاحقًا، غير الرابط هنا فقط.
+ * ✅ رابط Cloudflare Worker (Proxy)
  */
 const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
 
@@ -88,7 +87,7 @@ function escapeHtml(s){
   }[m]));
 }
 
-/** ✅ API Call مع Timeout + قراءة نصية لتجنب تعليق "جار التحميل" */
+/** ✅ API Call مع Timeout + قراءة نصية */
 async function apiCall(payload){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 12000); // 12 ثانية
@@ -100,7 +99,7 @@ async function apiCall(payload){
       signal: controller.signal
     });
 
-    const text = await r.text(); // قد يرجع HTML أو JSON
+    const text = await r.text();
     try{
       return JSON.parse(text);
     }catch(e){
@@ -116,6 +115,72 @@ async function apiCall(payload){
   }
 }
 
+function statusClass(v){
+  if(v==="حاضر") return "present";
+  if(v==="غائب") return "absent";
+  if(v==="مستأذن") return "excused";
+  return "";
+}
+
+function safeStatus(v){
+  const s = String(v||"").trim();
+  return s || "—";
+}
+
+/**
+ * ✅ بناء الجدول من weeks:
+ * - الشعبة 63107: لقاءين
+ * - باقي الشعب: لقاء واحد (ونعرض اللقاء الثاني —)
+ */
+function renderFromWeeks(weeks, isTwoSessions){
+  const table = document.getElementById("attTable");
+
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th style="min-width:140px">الأسبوع</th>
+        <th style="min-width:140px">اللقاء الأول</th>
+        <th style="min-width:140px">اللقاء الثاني</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        Array.from({length:16}, (_,i)=>{
+          const w = i+1;
+          const l1 = safeStatus(weeks?.[w]?.l1);
+          const l2 = isTwoSessions ? safeStatus(weeks?.[w]?.l2) : "—";
+
+          const c1 = statusClass(l1);
+          const c2 = statusClass(l2);
+
+          return `<tr>
+            <td>${escapeHtml("الأسبوع " + w)}</td>
+            <td class="status ${c1}">${escapeHtml(l1)}</td>
+            <td class="status ${c2}">${escapeHtml(l2)}</td>
+          </tr>`;
+        }).join("")
+      }
+    </tbody>
+  `;
+}
+
+function calcSummary(weeks, isTwoSessions){
+  let حاضر = 0, غائب = 0, مستأذن = 0;
+
+  for(let w=1; w<=16; w++){
+    const a = String(weeks?.[w]?.l1 || "").trim();
+    const b = isTwoSessions ? String(weeks?.[w]?.l2 || "").trim() : "";
+
+    const all = [a, b].filter(Boolean);
+    for(const v of all){
+      if(v==="حاضر") حاضر++;
+      else if(v==="غائب") غائب++;
+      else if(v==="مستأذن") مستأذن++;
+    }
+  }
+  return { حاضر, غائب, مستأذن };
+}
+
 (async function init(){
   const s = requireSession();
   if(!s) return;
@@ -124,10 +189,15 @@ async function apiCall(payload){
   document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشعبة: ${s.group || "-"}`;
   document.getElementById("summary").textContent = "جار التحميل...";
 
-  const res = await apiCall({action:"getMyAttendance", traineeId:s.traineeId});
+  // ✅ نطلب الحضور بالـ action الجديد
+  const res = await apiCall({
+    action: "attendance",
+    trainee: String(s.traineeId || ""),
+    section: String(s.group || "")
+  });
+
   console.log("ATT_RES", res);
 
-  // ✅ إذا فيه مشكلة لا نعلق
   if(!res.ok){
     document.getElementById("summary").textContent = "—";
     showMsg(res.message || "تعذر جلب الحضور", true);
@@ -135,53 +205,19 @@ async function apiCall(payload){
     return;
   }
 
-  // ✅ لا توجد بيانات صف لهذا المتدرب
-  if(!res.row){
-    document.getElementById("summary").textContent = "حاضر 0 • غائب 0 • مستأذن 0";
-    showMsg("لا توجد بيانات حضور لهذا المتدرب.", true);
+  if(!res.weeks){
+    document.getElementById("summary").textContent = "—";
+    showMsg("لم يتم استلام بيانات weeks من الخادم.", true);
     return;
   }
 
-  const headers = (res.headers || []).map(x => String(x||"").trim());
-  const row = res.row;
+  const isTwo = String(s.group || "") === "63107";
 
-  // عادة: A الاسم - B الرقم - C.. الأسابيع
-  const startIdx = 2; // C
-  let endIdx = headers.length - 1;
+  const sum = calcSummary(res.weeks, isTwo);
+  document.getElementById("summary").textContent =
+    `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
 
-  // قص الأعمدة الفارغة من النهاية
-  while(endIdx >= startIdx && !headers[endIdx]) endIdx--;
-
-  const vals = row.slice(startIdx, endIdx+1).map(x=>String(x||"").trim());
-  const حاضر = vals.filter(v=>v==="حاضر").length;
-  const غائب = vals.filter(v=>v==="غائب").length;
-  const مستأذن = vals.filter(v=>v==="مستأذن").length;
-
-  document.getElementById("summary").textContent = `حاضر ${حاضر} • غائب ${غائب} • مستأذن ${مستأذن}`;
-
-  const table = document.getElementById("attTable");
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th style="min-width:140px">الأسبوع</th>
-        <th style="min-width:140px">الحالة</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${
-        headers.slice(startIdx, endIdx+1).map((h, i) => {
-          const v = String(row[startIdx+i] || "").trim();
-          const cls = v==="حاضر" ? "present" : (v==="غائب" ? "absent" : (v==="مستأذن" ? "excused" : ""));
-          const vShow = v || "—";
-          const hShow = h || `الأسبوع ${i+1}`;
-          return `<tr>
-            <td>${escapeHtml(hShow)}</td>
-            <td class="status ${cls}">${escapeHtml(vShow)}</td>
-          </tr>`;
-        }).join("")
-      }
-    </tbody>
-  `;
+  renderFromWeeks(res.weeks, isTwo);
 
   document.getElementById("tableWrap").style.display = "";
   showMsg("تم تحميل الحضور بنجاح.", false);
