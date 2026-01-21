@@ -56,6 +56,14 @@
   </div>
 </a>
 
+<button class="btn" onclick="logout()">خروج</button>
+
+<script>
+function logout(){
+  localStorage.removeItem("edu_session");
+  location.href = "index.html";
+}
+</script>
 
 
   <script src="assets/config.js"></script>
