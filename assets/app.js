@@ -37,3 +37,33 @@ function renderSheetTable(containerId, res) {
     </div>
   `;
 }
+// ====== Session Helpers (إنقاذ سريع) ======
+window.getSession = function(){
+  try { return JSON.parse(localStorage.getItem("edu_session")||"null"); }
+  catch(e){ return null; }
+};
+
+window.requireSession = function(){
+  const s = window.getSession();
+  if(!s || !s.traineeId){
+    localStorage.removeItem("edu_session");
+    location.replace("index.html");
+    return null;
+  }
+  return s;
+};
+
+window.logout = function(){
+  localStorage.removeItem("edu_session");
+  location.replace("index.html");
+};
+
+// نداء API موحد
+window.apiCall = async function(payload){
+  const r = await fetch(window.API_URL,{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload)
+  });
+  return await r.json();
+};
