@@ -3,149 +3,194 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>بوابة الدخول</title>
+  <title>تسجيل الدخول</title>
   <link rel="stylesheet" href="assets/style.css">
-  <script src="assets/config.js"></script>
-  <script src="assets/app.js"></script>
-
   <style>
-    body{background:#f6f7fb}
-    .wrap{max-width:540px;margin:60px auto;padding:0 14px}
-    .card{background:#fff;border-radius:22px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    h1{margin:0 0 12px;font-size:26px}
-    .sub{opacity:.75;margin-bottom:14px}
-    input{width:100%;padding:14px;border:2px solid #e7e9ee;border-radius:16px;font-size:18px;outline:0}
-    input:focus{border-color:#111}
-    .row{display:flex;gap:10px;align-items:center;margin-top:12px}
-    .btn{flex:1;padding:12px 14px;border-radius:16px;border:0;cursor:pointer;font-weight:900}
-    .btn.dark{background:#111;color:#fff}
+    .cardX{background:#fff;border-radius:18px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,.06);max-width:780px;margin:32px auto}
+    .title{font-size:28px;font-weight:900;margin:0}
+    .sub{opacity:.75;margin-top:10px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .inp{width:100%;font-size:18px;padding:14px 16px;border-radius:16px;border:2px solid #e9edf2;outline:none}
+    .btn{padding:12px 16px;border-radius:16px;border:0;cursor:pointer;font-weight:900;min-width:140px}
+    .btn.primary{background:#111;color:#fff}
     .btn.ghost{background:#f2f4f7;color:#111}
-    .msg{margin-top:12px;font-weight:800}
-    .msg.ok{color:#0a7a3b}
-    .msg.err{color:#b00020}
-    .hint{margin-top:14px;font-size:13px;opacity:.7;line-height:1.6}
+    .note{margin-top:12px;font-weight:900}
+    .err{color:#b00020}
+    .ok{color:#0a7a3b}
+    .muted{opacity:.75}
+    .actions{display:flex;gap:12px;justify-content:center;margin-top:14px}
+    .center{display:flex;flex-direction:column;gap:12px;margin-top:16px}
   </style>
 </head>
 
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>تسجيل الدخول</h1>
-      <div class="sub">اكتب رقمك التدريبي ثم دخول</div>
+  <div class="container">
+    <div class="cardX">
+      <div class="center">
+        <h1 class="title">تسجيل الدخول</h1>
+        <div class="sub">اكتب رقمك التدريبي ثم دخول</div>
 
-      <input id="traineeId" inputmode="numeric" placeholder="الرقم التدريبي" autocomplete="off" />
+        <input id="traineeId" class="inp" inputmode="numeric" placeholder="الرقم التدريبي" />
 
-      <div class="row">
-        <button id="loginBtn" class="btn dark" onclick="doLogin()">دخول</button>
-        <button class="btn ghost" onclick="clearAll()">مسح</button>
-      </div>
+        <div class="actions">
+          <button id="btnClear" class="btn ghost" type="button">مسح</button>
+          <button id="btnLogin" class="btn primary" type="button">دخول</button>
+        </div>
 
-      <div id="status" class="msg"></div>
-
-      <div class="hint">
-        إذا علّق الدخول: افتح الصفحة في نافذة خاصة أو اضغط “مسح” ثم حاول مرة أخرى.
+        <div id="status" class="note muted"></div>
+        <div class="muted" style="text-align:center;margin-top:4px">
+          إذا علّق الدخول: افتح الصفحة في نافذة خاصة أو اضغط "مسح" ثم حاول مرة أخرى.
+        </div>
       </div>
     </div>
   </div>
 
 <script>
-function setStatus(text, type){
+/** ✅ Worker Proxy */
+const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
+
+function setStatus(msg, type){
   const el = document.getElementById("status");
-  el.textContent = text || "";
-  el.className = "msg " + (type || "");
+  el.textContent = msg || "";
+  el.className = "note " + (type === "err" ? "err" : (type === "ok" ? "ok" : "muted"));
 }
 
 function setLoading(isLoading){
-  const btn = document.getElementById("loginBtn");
-  btn.disabled = isLoading;
-  btn.textContent = isLoading ? "جاري الفتح..." : "دخول";
+  const b1 = document.getElementById("btnLogin");
+  const b2 = document.getElementById("btnClear");
+  b1.disabled = !!isLoading;
+  b2.disabled = !!isLoading;
+  b1.style.opacity = isLoading ? ".7" : "1";
+  b2.style.opacity = isLoading ? ".7" : "1";
 }
 
-function clearAll(){
-  localStorage.removeItem("edu_session");
-  document.getElementById("traineeId").value = "";
-  setStatus("", "");
+function getInput(){
+  return String(document.getElementById("traineeId").value || "").trim();
 }
 
-async function doLogin(){
+/** ✅ API Call (POST JSON) */
+async function apiCall(payload){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 12000);
   try{
-    const traineeId = (document.getElementById("traineeId").value || "").trim();
-    if(!traineeId){
-      setStatus("اكتب الرقم التدريبي.", "err");
-      return;
+    const r = await fetch(API_URL,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload||{}),
+      signal: controller.signal
+    });
+    const text = await r.text();
+    try{ return JSON.parse(text); }
+    catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
+  }catch(e){
+    if(String(e).includes("AbortError")){
+      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
     }
+    return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
+  }finally{
+    clearTimeout(timer);
+  }
+}
 
-    setStatus("", "");
-    setLoading(true);
+/**
+ * ✅ أهم جزء: getProfile بدون انتظار (لا يوقف الدخول)
+ * - يحدّث edu_session إذا نجح فقط
+ */
+function fetchProfileNonBlocking(session){
+  try{
+    fetch(API_URL, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ action:"getProfile", traineeId: session.traineeId })
+    })
+    .then(r => r.text())
+    .then(text => {
+      let p = null;
+      try{ p = JSON.parse(text); }catch(e){ return; }
 
-    // ✅ يعتمد فقط على getProfile
-    const res = await apiCall({ action:"getProfile", traineeId });
+      if(p && p.ok && p.found && Array.isArray(p.groups) && p.groups.length){
+        session.groups = p.groups;
+        session.primaryGroup = p.primaryGroup || p.groups[0];
+
+        // توافق قديم: group موجودة دائمًا
+        session.group = session.primaryGroup;
+
+        localStorage.setItem("edu_session", JSON.stringify(session));
+      }
+    })
+    .catch(()=>{});
+  }catch(e){}
+}
+
+/** ✅ Login */
+async function doLogin(){
+  const id = getInput();
+  if(!id){
+    setStatus("اكتب الرقم التدريبي.", "err");
+    return;
+  }
+
+  setLoading(true);
+  setStatus("جار التحقق...", "");
+
+  try{
+    // ⚠️ ضع هنا نفس action الذي كان يعمل عندك سابقًا
+    // إن كان عندك action مختلف (مثلاً student_login) غيّره للسابق عندك.
+    const res = await apiCall({ action:"login", traineeId:id });
 
     if(!res || !res.ok){
-      setStatus((res && res.message) ? res.message : "فشل الدخول. تحقق من الرقم.", "err");
-      setLoading(false);
+      setStatus(res?.message || "تعذر تسجيل الدخول.", "err");
       return;
     }
 
-    const t = res.trainee || res.student || res.data || res.profile || null;
+    // دعم أكثر من شكل رد (مثل ما كان عندك سابقًا)
+    const t = res.profile || res.trainee || res.data || res;
 
-if(!t || !(t.traineeId || t.id || res.traineeId)){
-  setStatus("تم الاتصال ولكن بيانات المتدرب غير مكتملة (لا يوجد trainee).", "err");
-  setLoading(false);
-  return;
-}
+    const traineeIdFixed = String(t.traineeId || t.id || res.traineeId || id).trim();
+    const nameFixed = String(t.name || t.fullName || res.name || "متدرب").trim();
+    const groupFixed = String(t.group || t.section || t.class || res.group || "").trim();
+    const advisorFixed = String(t.advisor || t.advisorName || "").trim();
 
-const traineeIdFixed = (t.traineeId || t.id || res.traineeId || "").toString().trim();
+    const session = {
+      traineeId: traineeIdFixed,
+      name: nameFixed,
+      group: groupFixed,
+      advisor: advisorFixed
+    };
 
-const session = {
-  traineeId: traineeIdFixed,
-  name: (t.name || t.fullName || res.name || "").toString().trim(),
-  group: (t.group || t.section || t.class || "").toString().trim(),
-  advisor: (t.advisor || t.advisorName || "").toString().trim()
-};
+    // ✅ حفظ فوري (مثل السابق) — هذا يمنع تعطّل الأزرار والدخول
+    localStorage.setItem("edu_session", JSON.stringify(session));
 
-// ✅ نحفظ session مبدئيًا (توافق قديم)
-localStorage.setItem("edu_session", JSON.stringify(session));
+    // ✅ جلب الشعب بالخلفية بدون انتظار (لن يؤثر على الدخول)
+    fetchProfileNonBlocking(session);
 
-/* =========================================
-   ✅ إضافة getProfile (بدون كسر أي شيء)
-========================================= */
-(async ()=>{
-  try{
-    const p = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "getProfile",
-        traineeId: session.traineeId
-      })
-    });
-
-    const text = await p.text();
-    let prof = null;
-    try{ prof = JSON.parse(text); }catch(e){}
-
-    if(prof && prof.ok && prof.found && Array.isArray(prof.groups) && prof.groups.length){
-      session.groups = prof.groups;
-      session.primaryGroup = prof.primaryGroup || prof.groups[0];
-
-      // توافق مع الكود القديم
-      session.group = session.primaryGroup;
-
-      localStorage.setItem("edu_session", JSON.stringify(session));
-    }
-  }catch(e){
-    // ❌ لا نفعل شيئًا – الدخول يستمر طبيعي
-  }finally{
     setStatus("تم الدخول بنجاح", "ok");
+
+    // ✅ انتقال فوري (مثل السابق)
     location.href = "student.html";
-  }
-})();
-catch(err){
+
+  }catch(err){
     setStatus("حدث خطأ: " + String(err), "err");
+  }finally{
     setLoading(false);
   }
 }
+
+/** ✅ Clear */
+function doClear(){
+  document.getElementById("traineeId").value = "";
+  setStatus("", "");
+  try{ localStorage.removeItem("edu_session"); }catch(e){}
+}
+
+document.getElementById("btnLogin").addEventListener("click", doLogin);
+document.getElementById("btnClear").addEventListener("click", doClear);
+document.getElementById("traineeId").addEventListener("keydown", (e)=>{
+  if(e.key === "Enter") doLogin();
+});
+
+// حالة بداية
+setStatus("", "");
 </script>
 </body>
 </html>
