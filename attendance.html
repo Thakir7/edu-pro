@@ -56,15 +56,11 @@
 </div>
 
 <script>
-/**
- * ✅ رابط Cloudflare Worker (Proxy)
- */
 const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
 
 function getSession(){
   try{ return JSON.parse(localStorage.getItem("edu_session")||"null"); }catch(e){ return null; }
 }
-
 function requireSession(){
   const s = getSession();
   if(!s || !s.traineeId){
@@ -74,23 +70,19 @@ function requireSession(){
   }
   return s;
 }
-
 function showMsg(text, isErr){
   const el = document.getElementById("msg");
   el.textContent = text || "";
   el.className = "note " + (isErr ? "err" : "ok");
 }
-
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
 }
-
-/** ✅ API Call مع Timeout + قراءة نصية */
 async function apiCall(payload){
   const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 12000); // 12 ثانية
+  const timer = setTimeout(()=>controller.abort(), 12000);
   try{
     const r = await fetch(API_URL,{
       method:"POST",
@@ -98,21 +90,15 @@ async function apiCall(payload){
       body: JSON.stringify(payload||{}),
       signal: controller.signal
     });
-
     const text = await r.text();
-    try{
-      return JSON.parse(text);
-    }catch(e){
-      return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) };
-    }
+    try{ return JSON.parse(text); }
+    catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
   }catch(e){
     if(String(e).includes("AbortError")){
-      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية. تحقق من النشر أو doPost." };
+      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
     }
     return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
-  }finally{
-    clearTimeout(timer);
-  }
+  }finally{ clearTimeout(timer); }
 }
 
 function statusClass(v){
@@ -121,20 +107,79 @@ function statusClass(v){
   if(v==="مستأذن") return "excused";
   return "";
 }
-
 function safeStatus(v){
   const s = String(v||"").trim();
   return s || "—";
 }
 
-/**
- * ✅ بناء الجدول من weeks:
- * - الشعبة 63107: لقاءين
- * - باقي الشعب: لقاء واحد (ونعرض اللقاء الثاني —)
- */
-function renderFromWeeks(weeks, isTwoSessions){
-  const table = document.getElementById("attTable");
+/** ✅ يجلب groups/primaryGroup ويحفظها في session بدون كسر السابق */
+async function ensureGroupsInSession(s){
+  if (Array.isArray(s.groups) && s.groups.length) return s;
 
+  const p = await apiCall({ action:"getProfile", traineeId: String(s.traineeId||"") });
+  if (p && p.ok && p.found && Array.isArray(p.groups) && p.groups.length){
+    s.groups = p.groups;
+    s.primaryGroup = p.primaryGroup || p.groups[0];
+    // توافق قديم
+    if (!s.group) s.group = s.primaryGroup;
+    localStorage.setItem("edu_session", JSON.stringify(s));
+    return s;
+  }
+
+  // fallback للوضع القديم
+  const g = String(s.group || "").trim();
+  if (g) {
+    s.groups = [g];
+    s.primaryGroup = g;
+    localStorage.setItem("edu_session", JSON.stringify(s));
+  }
+  return s;
+}
+
+function calcSummaryFromWeeks(weeks, twoSessions){
+  let حاضر = 0, غائب = 0, مستأذن = 0;
+  for(let w=1; w<=16; w++){
+    const l1 = String(weeks?.[w]?.l1 || "").trim();
+    const l2 = twoSessions ? String(weeks?.[w]?.l2 || "").trim() : "";
+    const arr = [l1, l2].filter(Boolean);
+    for(const v of arr){
+      if(v==="حاضر") حاضر++;
+      else if(v==="غائب") غائب++;
+      else if(v==="مستأذن") مستأذن++;
+    }
+  }
+  return { حاضر, غائب, مستأذن };
+}
+
+/** ✅ عرض شعبة واحدة (حالة واحدة) */
+function renderSingleGroupTable(group, weeks){
+  const table = document.getElementById("attTable");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th style="min-width:140px">الأسبوع</th>
+        <th style="min-width:140px">شعبة ${escapeHtml(group)}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        Array.from({length:16},(_,i)=>{
+          const w=i+1;
+          const v = safeStatus(weeks?.[w]?.l1);
+          const cls = statusClass(v);
+          return `<tr>
+            <td>${escapeHtml("الأسبوع " + w)}</td>
+            <td class="status ${cls}">${escapeHtml(v)}</td>
+          </tr>`;
+        }).join("")
+      }
+    </tbody>
+  `;
+}
+
+/** ✅ عرض شعبة 63107 (لقاءين) كما هو */
+function renderTwoSessionsTable(group, weeks){
+  const table = document.getElementById("attTable");
   table.innerHTML = `
     <thead>
       <tr>
@@ -145,18 +190,15 @@ function renderFromWeeks(weeks, isTwoSessions){
     </thead>
     <tbody>
       ${
-        Array.from({length:16}, (_,i)=>{
-          const w = i+1;
-          const l1 = safeStatus(weeks?.[w]?.l1);
-          const l2 = isTwoSessions ? safeStatus(weeks?.[w]?.l2) : "—";
-
-          const c1 = statusClass(l1);
-          const c2 = statusClass(l2);
-
+        Array.from({length:16},(_,i)=>{
+          const w=i+1;
+          const v1 = safeStatus(weeks?.[w]?.l1);
+          const v2 = safeStatus(weeks?.[w]?.l2);
+          const c1 = statusClass(v1), c2 = statusClass(v2);
           return `<tr>
             <td>${escapeHtml("الأسبوع " + w)}</td>
-            <td class="status ${c1}">${escapeHtml(l1)}</td>
-            <td class="status ${c2}">${escapeHtml(l2)}</td>
+            <td class="status ${c1}">${escapeHtml(v1)}</td>
+            <td class="status ${c2}">${escapeHtml(v2)}</td>
           </tr>`;
         }).join("")
       }
@@ -164,63 +206,136 @@ function renderFromWeeks(weeks, isTwoSessions){
   `;
 }
 
-function calcSummary(weeks, isTwoSessions){
-  let حاضر = 0, غائب = 0, مستأذن = 0;
+/** ✅ عرض شعبتين: الأسبوع | رقم الشعبة الأولى | رقم الشعبة الثانية */
+function renderTwoGroupsCompareTable(g1, w1, g2, w2){
+  const table = document.getElementById("attTable");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th style="min-width:140px">الأسبوع</th>
+        <th style="min-width:140px">شعبة ${escapeHtml(g1)}</th>
+        <th style="min-width:140px">شعبة ${escapeHtml(g2)}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        Array.from({length:16},(_,i)=>{
+          const w=i+1;
+          const v1 = safeStatus(w1?.[w]?.l1);
+          const v2 = safeStatus(w2?.[w]?.l1);
+          const c1 = statusClass(v1), c2 = statusClass(v2);
+          return `<tr>
+            <td>${escapeHtml("الأسبوع " + w)}</td>
+            <td class="status ${c1}">${escapeHtml(v1)}</td>
+            <td class="status ${c2}">${escapeHtml(v2)}</td>
+          </tr>`;
+        }).join("")
+      }
+    </tbody>
+  `;
+}
 
-  for(let w=1; w<=16; w++){
-    const a = String(weeks?.[w]?.l1 || "").trim();
-    const b = isTwoSessions ? String(weeks?.[w]?.l2 || "").trim() : "";
-
-    const all = [a, b].filter(Boolean);
-    for(const v of all){
-      if(v==="حاضر") حاضر++;
-      else if(v==="غائب") غائب++;
-      else if(v==="مستأذن") مستأذن++;
-    }
-  }
-  return { حاضر, غائب, مستأذن };
+async function fetchAttendance(traineeId, section){
+  return await apiCall({ action:"attendance", trainee: String(traineeId), section: String(section) });
 }
 
 (async function init(){
-  const s = requireSession();
+  let s = requireSession();
   if(!s) return;
 
   document.getElementById("who").textContent = s.name || "متدرب";
-  document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشعبة: ${s.group || "-"}`;
   document.getElementById("summary").textContent = "جار التحميل...";
 
-  // ✅ نطلب الحضور بالـ action الجديد
-  const res = await apiCall({
-    action: "attendance",
-    trainee: String(s.traineeId || ""),
-    section: String(s.group || "")
-  });
+  // ✅ اجلب الشعب من getProfile (بدون كسر القديم)
+  s = await ensureGroupsInSession(s);
 
-  console.log("ATT_RES", res);
+  const groups = Array.isArray(s.groups) && s.groups.length ? s.groups : (s.group ? [s.group] : []);
+  const primary = s.primaryGroup || s.group || groups[0] || "";
+  const traineeId = s.traineeId;
 
-  if(!res.ok){
-    document.getElementById("summary").textContent = "—";
-    showMsg(res.message || "تعذر جلب الحضور", true);
-    if(res.raw) console.log("RAW_RESPONSE", res.raw);
+  // عرض meta
+  document.getElementById("meta").textContent = `الرقم: ${traineeId} • الشُعب: ${groups.join(" ، ") || "-"}`;
+
+  showMsg("", false);
+
+  // ✅ حالة شعبة واحدة
+  if (groups.length <= 1) {
+    const g = primary || groups[0] || "";
+    const res = await fetchAttendance(traineeId, g);
+    console.log("ATT_RES", res);
+
+    if(!res.ok){
+      document.getElementById("summary").textContent = "—";
+      showMsg(res.message || "تعذر جلب الحضور", true);
+      return;
+    }
+
+    if (String(g) === "63107") {
+      const sum = calcSummaryFromWeeks(res.weeks, true);
+      document.getElementById("summary").textContent = `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
+      renderTwoSessionsTable(g, res.weeks);
+    } else {
+      const sum = calcSummaryFromWeeks(res.weeks, false);
+      document.getElementById("summary").textContent = `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
+      renderSingleGroupTable(g, res.weeks);
+    }
+
+    document.getElementById("tableWrap").style.display = "";
+    showMsg("تم تحميل الحضور بنجاح.", false);
     return;
   }
 
-  if(!res.weeks){
-    document.getElementById("summary").textContent = "—";
-    showMsg("لم يتم استلام بيانات weeks من الخادم.", true);
+  // ✅ حالة شعبتين (المطلوبة عندك)
+  // نستعرضها مقارنة: الأسبوع | شعبة1 | شعبة2
+  const g1 = String(groups[0]);
+  const g2 = String(groups[1]);
+
+  // (حسب كلامك 63107 ليست مزدوجة، لكن احتياط)
+  if (g1 === "63107" || g2 === "63107") {
+    // لو دخلت 63107 ضمن مجموعتين (نادر)، نعرض الأساسية فقط لتجنب لخبطة اللقاءين
+    const g = primary;
+    const res = await fetchAttendance(traineeId, g);
+    console.log("ATT_RES", res);
+    if(!res.ok){
+      document.getElementById("summary").textContent = "—";
+      showMsg(res.message || "تعذر جلب الحضور", true);
+      return;
+    }
+    const two = (String(g) === "63107");
+    const sum = calcSummaryFromWeeks(res.weeks, two);
+    document.getElementById("summary").textContent = `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
+    two ? renderTwoSessionsTable(g, res.weeks) : renderSingleGroupTable(g, res.weeks);
+    document.getElementById("tableWrap").style.display = "";
+    showMsg("تم تحميل الحضور بنجاح.", false);
     return;
   }
 
-  const isTwo = String(s.group || "") === "63107";
+  // جلب الحضور للشعبتين
+  const [r1, r2] = await Promise.all([
+    fetchAttendance(traineeId, g1),
+    fetchAttendance(traineeId, g2)
+  ]);
 
-  const sum = calcSummary(res.weeks, isTwo);
+  console.log("ATT_RES_G1", r1);
+  console.log("ATT_RES_G2", r2);
+
+  if(!r1.ok || !r2.ok){
+    document.getElementById("summary").textContent = "—";
+    showMsg((!r1.ok ? (`شعبة ${g1}: ${r1.message || "خطأ"}`) : "") + ( (!r2.ok ? (` • شعبة ${g2}: ${r2.message || "خطأ"}`) : "") ), true);
+    return;
+  }
+
+  // ملخص موحّد للشعبتين (عدد اللقاءات هنا 1 لكل شعبة)
+  const s1 = calcSummaryFromWeeks(r1.weeks, false);
+  const s2 = calcSummaryFromWeeks(r2.weeks, false);
   document.getElementById("summary").textContent =
-    `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
+    `حاضر ${s1.حاضر + s2.حاضر} • غائب ${s1.غائب + s2.غائب} • مستأذن ${s1.مستأذن + s2.مستأذن}`;
 
-  renderFromWeeks(res.weeks, isTwo);
+  // ✅ العناوين بدل "اللقاء" تكون أرقام الشعب (حسب طلبك)
+  renderTwoGroupsCompareTable(g1, r1.weeks, g2, r2.weeks);
 
   document.getElementById("tableWrap").style.display = "";
-  showMsg("تم تحميل الحضور بنجاح.", false);
+  showMsg("تم تحميل الحضور للشعبتين بنجاح.", false);
 
 })();
 </script>
