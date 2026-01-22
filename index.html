@@ -57,7 +57,7 @@ function setStatus(text, type){
 
 function setLoading(isLoading){
   const btn = document.getElementById("loginBtn");
-  btn.disabled = isLoading;
+  btn.disabled = !!isLoading;
   btn.textContent = isLoading ? "جاري الفتح..." : "دخول";
 }
 
@@ -65,6 +65,37 @@ function clearAll(){
   localStorage.removeItem("edu_session");
   document.getElementById("traineeId").value = "";
   setStatus("", "");
+}
+
+/**
+ * ✅ Fallback آمن لو apiCall غير موجود في assets/app.js
+ */
+async function apiCallSafe(payload){
+  if (typeof window.apiCall === "function") {
+    return await window.apiCall(payload);
+  }
+
+  const url = window.API_URL || window.apiUrl || "https://tvtc-exam-api.ensancom.workers.dev/";
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 12000);
+  try{
+    const r = await fetch(url,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload||{}),
+      signal: controller.signal
+    });
+    const text = await r.text();
+    try{ return JSON.parse(text); }
+    catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
+  }catch(e){
+    if(String(e).includes("AbortError")){
+      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
+    }
+    return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 async function doLogin(){
@@ -78,41 +109,60 @@ async function doLogin(){
     setStatus("", "");
     setLoading(true);
 
-    // ✅ يعتمد فقط على getProfile
-    const res = await apiCall({ action:"getProfile", traineeId });
+    // ✅ 1) نحاول getProfile (الجديد)
+    let res = await apiCallSafe({ action:"getProfile", traineeId });
 
-    if(!res || !res.ok){
+    // ✅ إن لم يوجد (found:false) أو ok:false نجرّب login القديم إذا كان موجود (بدون كسر)
+    if(!res || !res.ok || res.found === false){
+      const old = await apiCallSafe({ action:"login", traineeId });
+      if(old && old.ok){
+        // لو عندك login قديم يرجع profile
+        const t = old.profile || old.trainee || old.student || old.data || old || {};
+        const sessionOld = {
+          traineeId: String(t.traineeId || t.id || old.traineeId || traineeId).trim(),
+          name: String(t.name || t.fullName || old.name || "").trim(),
+          group: String(t.group || t.section || t.class || old.group || "").trim(),
+          advisor: String(t.advisor || t.advisorName || "").trim()
+        };
+        localStorage.setItem("edu_session", JSON.stringify(sessionOld));
+        setStatus("تم الدخول بنجاح…", "ok");
+        location.href = "student.html";
+        return;
+      }
+
+      // لا getProfile ولا login نجحوا
       setStatus((res && res.message) ? res.message : "فشل الدخول. تحقق من الرقم.", "err");
       setLoading(false);
       return;
     }
 
-    const t = res.trainee || res.student || res.data || res.profile || null;
+    // ✅ getProfile نجح: نبني session مباشرة من res (بدون trainee object)
+    if(res.found === false){
+      setStatus("لم يتم العثور على متدرب بهذا الرقم.", "err");
+      setLoading(false);
+      return;
+    }
 
-if(!t || !(t.traineeId || t.id || res.traineeId)){
-  setStatus("تم الاتصال ولكن بيانات المتدرب غير مكتملة (لا يوجد trainee).", "err");
-  setLoading(false);
-  return;
-}
+    const groups = Array.isArray(res.groups) ? res.groups : [];
+    const primaryGroup = String(res.primaryGroup || groups[0] || "").trim();
 
-const traineeIdFixed = (t.traineeId || t.id || res.traineeId || "").toString().trim();
-
-const session = {
-  traineeId: traineeIdFixed,
-  name: (t.name || t.fullName || res.name || "").toString().trim(),
-  group: (t.group || t.section || t.class || "").toString().trim(),
-  advisor: (t.advisor || t.advisorName || "").toString().trim()
-};
-
+    const session = {
+      traineeId: String(res.traineeId || traineeId).trim(),
+      name: String(res.name || "").trim(),
+      group: primaryGroup,            // توافق قديم
+      groups: groups,                 // الجديد
+      primaryGroup: primaryGroup      // الجديد
+      // advisor: (اختياري لاحقًا إذا أضفناه من الشيت)
+    };
 
     localStorage.setItem("edu_session", JSON.stringify(session));
     setStatus("تم الدخول بنجاح…", "ok");
-
-    // ✅ انتقال
     location.href = "student.html";
 
   }catch(err){
     setStatus("حدث خطأ: " + String(err), "err");
+    setLoading(false);
+  }finally{
     setLoading(false);
   }
 }
