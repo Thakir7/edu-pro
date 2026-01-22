@@ -27,7 +27,7 @@
     .ok{color:#0a7a3b}
     .wrap{overflow:auto}
 
-    /* ✅ شريط اختيار الشعبة (إضافة بسيطة بدون كسر التصميم) */
+    /* ✅ شريط اختيار الشعبة */
     .groupbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     .groupbar .btn{min-width:120px}
     .btn.active{outline:2px solid #111}
@@ -54,7 +54,6 @@
 
     <div id="msg" class="note"></div>
 
-    <!-- ✅ اختيار الشعبة -->
     <div id="groupBar" class="groupbar" style="display:none"></div>
 
     <div class="wrap" id="tableWrap" style="display:none">
@@ -64,10 +63,12 @@
 </div>
 
 <script>
+/** ✅ Worker Proxy */
+const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
+
 function getSession(){
   try{ return JSON.parse(localStorage.getItem("edu_session")||"null"); }catch(e){ return null; }
 }
-
 function requireSession(){
   const s = getSession();
   if(!s || !s.traineeId){
@@ -77,17 +78,39 @@ function requireSession(){
   }
   return s;
 }
-
 function showMsg(text, isErr){
   const el = document.getElementById("msg");
   el.textContent = text || "";
   el.className = "note " + (isErr ? "err" : "ok");
 }
-
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
+}
+
+/** ✅ API Call (Self-contained) */
+async function apiCall(payload){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 12000);
+  try{
+    const r = await fetch(API_URL,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload||{}),
+      signal: controller.signal
+    });
+    const text = await r.text();
+    try{ return JSON.parse(text); }
+    catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
+  }catch(e){
+    if(String(e).includes("AbortError")){
+      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
+    }
+    return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 function statusClass(v){
@@ -96,13 +119,10 @@ function statusClass(v){
   if(v==="مستأذن") return "excused";
   return "";
 }
-
 function safeStatus(v){
   const s = String(v||"").trim();
   return s || "—";
 }
-
-/** ✅ حساب الملخص */
 function calcSummaryFromWeeks(weeks, twoSessions){
   let حاضر=0, غائب=0, مستأذن=0;
   for(let w=1; w<=16; w++){
@@ -118,11 +138,12 @@ function calcSummaryFromWeeks(weeks, twoSessions){
   return {حاضر,غائب,مستأذن};
 }
 
-/** ✅ جلب الشعب من getProfile إذا لم تكن في session */
+/** ✅ إذا session ما فيها groups نجيبها من getProfile */
 async function ensureGroups(s){
   if(Array.isArray(s.groups) && s.groups.length) return s;
 
   const p = await apiCall({ action:"getProfile", traineeId: String(s.traineeId||"") });
+
   if(p && p.ok && p.found && Array.isArray(p.groups) && p.groups.length){
     s.groups = p.groups;
     s.primaryGroup = p.primaryGroup || p.groups[0];
@@ -134,7 +155,7 @@ async function ensureGroups(s){
     return s;
   }
 
-  // fallback: شعبة واحدة فقط
+  // fallback: شعبة واحدة
   const g = String(s.group||"").trim();
   if(g){
     s.groups = [g];
@@ -144,7 +165,7 @@ async function ensureGroups(s){
   return s;
 }
 
-/** ✅ نداء الحضور (متوافق 100% مع App Script الذي أرسلته) */
+/** ✅ Attendance call (matches your GAS: action=attendance, accepts traineeId/section) */
 async function fetchAttendance(traineeId, section){
   return await apiCall({
     action: "attendance",
@@ -153,7 +174,6 @@ async function fetchAttendance(traineeId, section){
   });
 }
 
-/** ✅ رسم شريط الشعب */
 function renderGroupBar(groups, active, onPick){
   const bar = document.getElementById("groupBar");
   if(!Array.isArray(groups) || groups.length <= 1){
@@ -172,7 +192,6 @@ function renderGroupBar(groups, active, onPick){
   });
 }
 
-/** ✅ جدول شعبة عادية */
 function renderSingleGroupTable(group, weeks){
   const table = document.getElementById("attTable");
   table.innerHTML = `
@@ -198,7 +217,6 @@ function renderSingleGroupTable(group, weeks){
   `;
 }
 
-/** ✅ جدول 63107 لقاءين */
 function renderTwoSessionsTable(weeks){
   const table = document.getElementById("attTable");
   table.innerHTML = `
@@ -241,7 +259,6 @@ async function loadForGroup(s, group){
     return;
   }
 
-  // ✅ 63107 لقاءين
   const isTwo = String(group) === "63107";
   const sum = calcSummaryFromWeeks(res.weeks, isTwo);
   document.getElementById("summary").textContent =
@@ -258,28 +275,27 @@ async function loadForGroup(s, group){
   let s = requireSession();
   if(!s) return;
 
-  // الاسم من session (توافق قديم)
+  // اعرض اسم المتدرب من session (إذا لم يحدث تسجيل دخول جديد سيظهر "متدرب")
   document.getElementById("who").textContent = s.name || "متدرب";
+  document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشُعب: ...`;
   document.getElementById("summary").textContent = "جار التحميل...";
 
-  // ✅ جلب الشعب إن لم تكن موجودة
   s = await ensureGroups(s);
 
   const groups = Array.isArray(s.groups) && s.groups.length ? s.groups : (s.group ? [s.group] : []);
   const active = String(s.primaryGroup || s.group || groups[0] || "");
 
+  document.getElementById("who").textContent = s.name || "متدرب";
   document.getElementById("meta").textContent =
     `الرقم: ${s.traineeId} • الشُعب: ${groups.join(" ، ") || "-"}`;
 
   renderGroupBar(groups, active, async (g)=>{
-    // نخزن اختيار المستخدم بدون كسر القديم
     s.primaryGroup = String(g);
     s.group = String(g);
     localStorage.setItem("edu_session", JSON.stringify(s));
 
-    renderGroupBar(groups, g, async ()=>{});
-    await loadForGroup(s, g);
     renderGroupBar(groups, g, arguments.callee);
+    await loadForGroup(s, g);
   });
 
   await loadForGroup(s, active);
