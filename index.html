@@ -104,14 +104,44 @@ const session = {
   advisor: (t.advisor || t.advisorName || "").toString().trim()
 };
 
+// ✅ نحفظ session مبدئيًا (توافق قديم)
+localStorage.setItem("edu_session", JSON.stringify(session));
 
-    localStorage.setItem("edu_session", JSON.stringify(session));
-    setStatus("تم الدخول بنجاح…", "ok");
+/* =========================================
+   ✅ إضافة getProfile (بدون كسر أي شيء)
+========================================= */
+(async ()=>{
+  try{
+    const p = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "getProfile",
+        traineeId: session.traineeId
+      })
+    });
 
-    // ✅ انتقال
+    const text = await p.text();
+    let prof = null;
+    try{ prof = JSON.parse(text); }catch(e){}
+
+    if(prof && prof.ok && prof.found && Array.isArray(prof.groups) && prof.groups.length){
+      session.groups = prof.groups;
+      session.primaryGroup = prof.primaryGroup || prof.groups[0];
+
+      // توافق مع الكود القديم
+      session.group = session.primaryGroup;
+
+      localStorage.setItem("edu_session", JSON.stringify(session));
+    }
+  }catch(e){
+    // ❌ لا نفعل شيئًا – الدخول يستمر طبيعي
+  }finally{
+    setStatus("تم الدخول بنجاح", "ok");
     location.href = "student.html";
-
-  }catch(err){
+  }
+})();
+catch(err){
     setStatus("حدث خطأ: " + String(err), "err");
     setLoading(false);
   }
