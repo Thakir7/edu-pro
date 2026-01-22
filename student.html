@@ -98,6 +98,9 @@
     location.replace("index.html");
     return;
   }
+if (payload.action === "getProfile") {
+  return getProfile_(payload);
+}
 
   // ✅ تحديث الجلسة بالشعبة (إذا كانت ناقصة)
   const session = { ...s, ...prof.trainee };
