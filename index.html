@@ -67,37 +67,6 @@ function clearAll(){
   setStatus("", "");
 }
 
-/**
- * ✅ Fallback آمن لو apiCall غير موجود في assets/app.js
- */
-async function apiCallSafe(payload){
-  if (typeof window.apiCall === "function") {
-    return await window.apiCall(payload);
-  }
-
-  const url = window.API_URL || window.apiUrl || "https://tvtc-exam-api.ensancom.workers.dev/";
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 12000);
-  try{
-    const r = await fetch(url,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify(payload||{}),
-      signal: controller.signal
-    });
-    const text = await r.text();
-    try{ return JSON.parse(text); }
-    catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
-  }catch(e){
-    if(String(e).includes("AbortError")){
-      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
-    }
-    return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
-  }finally{
-    clearTimeout(timer);
-  }
-}
-
 async function doLogin(){
   try{
     const traineeId = (document.getElementById("traineeId").value || "").trim();
@@ -109,34 +78,17 @@ async function doLogin(){
     setStatus("", "");
     setLoading(true);
 
-    // ✅ 1) نحاول getProfile (الجديد)
-    let res = await apiCallSafe({ action:"getProfile", traineeId });
+    // ✅ يعتمد على getProfile (كما في App Script)
+    // توقع الاستجابة:
+    // { ok:true, found:true, traineeId, name, groups:[...], primaryGroup:"..." }
+    const res = await apiCall({ action:"getProfile", traineeId });
 
-    // ✅ إن لم يوجد (found:false) أو ok:false نجرّب login القديم إذا كان موجود (بدون كسر)
-    if(!res || !res.ok || res.found === false){
-      const old = await apiCallSafe({ action:"login", traineeId });
-      if(old && old.ok){
-        // لو عندك login قديم يرجع profile
-        const t = old.profile || old.trainee || old.student || old.data || old || {};
-        const sessionOld = {
-          traineeId: String(t.traineeId || t.id || old.traineeId || traineeId).trim(),
-          name: String(t.name || t.fullName || old.name || "").trim(),
-          group: String(t.group || t.section || t.class || old.group || "").trim(),
-          advisor: String(t.advisor || t.advisorName || "").trim()
-        };
-        localStorage.setItem("edu_session", JSON.stringify(sessionOld));
-        setStatus("تم الدخول بنجاح…", "ok");
-        location.href = "student.html";
-        return;
-      }
-
-      // لا getProfile ولا login نجحوا
+    if(!res || !res.ok){
       setStatus((res && res.message) ? res.message : "فشل الدخول. تحقق من الرقم.", "err");
       setLoading(false);
       return;
     }
 
-    // ✅ getProfile نجح: نبني session مباشرة من res (بدون trainee object)
     if(res.found === false){
       setStatus("لم يتم العثور على متدرب بهذا الرقم.", "err");
       setLoading(false);
@@ -146,22 +98,27 @@ async function doLogin(){
     const groups = Array.isArray(res.groups) ? res.groups : [];
     const primaryGroup = String(res.primaryGroup || groups[0] || "").trim();
 
+    // ✅ Session متوافق مع القديم + يدعم الجديد
     const session = {
       traineeId: String(res.traineeId || traineeId).trim(),
-      name: String(res.name || "").trim(),
-      group: primaryGroup,            // توافق قديم
-      groups: groups,                 // الجديد
-      primaryGroup: primaryGroup      // الجديد
-      // advisor: (اختياري لاحقًا إذا أضفناه من الشيت)
+      name: String(res.name || "متدرب").trim(),
+
+      // القديم
+      group: primaryGroup,
+      advisor: "",
+
+      // الجديد
+      groups: groups,
+      primaryGroup: primaryGroup
     };
 
     localStorage.setItem("edu_session", JSON.stringify(session));
     setStatus("تم الدخول بنجاح…", "ok");
+
     location.href = "student.html";
 
   }catch(err){
     setStatus("حدث خطأ: " + String(err), "err");
-    setLoading(false);
   }finally{
     setLoading(false);
   }
