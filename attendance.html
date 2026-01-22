@@ -26,6 +26,11 @@
     .err{color:#b00020}
     .ok{color:#0a7a3b}
     .wrap{overflow:auto}
+
+    /* ✅ شريط الشعب */
+    .groupbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .groupbar .btn{min-width:120px}
+    .btn.active{outline:2px solid #111}
   </style>
 </head>
 
@@ -49,6 +54,9 @@
 
     <div id="msg" class="note"></div>
 
+    <!-- ✅ شريط اختيار الشعبة -->
+    <div id="groupBar" class="groupbar" style="display:none"></div>
+
     <div class="wrap" id="tableWrap" style="display:none">
       <table id="attTable"></table>
     </div>
@@ -56,7 +64,6 @@
 </div>
 
 <script>
-/** ✅ Proxy */
 const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
 
 function getSession(){
@@ -81,8 +88,6 @@ function escapeHtml(s){
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
 }
-
-/** ✅ API Call */
 async function apiCall(payload){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 12000);
@@ -117,25 +122,24 @@ function safeStatus(v){
   return s || "—";
 }
 
-/** ✅ تجيب الشعبتين من getProfile إذا غير موجودة في session */
-async function ensureGroupsInSession(s){
+/** ✅ إذا session ما فيها groups نجيبها من getProfile (بدون كسر القديم) */
+async function ensureGroups(s){
   if(Array.isArray(s.groups) && s.groups.length) return s;
 
   const p = await apiCall({ action:"getProfile", traineeId: String(s.traineeId||"") });
-
   if(p && p.ok && p.found && Array.isArray(p.groups) && p.groups.length){
     s.groups = p.groups;
     s.primaryGroup = p.primaryGroup || p.groups[0];
 
-    // توافق قديم
-    s.group = s.primaryGroup;
+    // توافق مع القديم
+    if(!s.group) s.group = s.primaryGroup;
 
     localStorage.setItem("edu_session", JSON.stringify(s));
     return s;
   }
 
-  // fallback للوضع القديم (شعبة واحدة)
-  const g = String(s.group || "").trim();
+  // fallback للوضع القديم: شعبة واحدة من session.group
+  const g = String(s.group||"").trim();
   if(g){
     s.groups = [g];
     s.primaryGroup = g;
@@ -144,17 +148,16 @@ async function ensureGroupsInSession(s){
   return s;
 }
 
-/** ✅ جلب حضور شعبة معينة */
 async function fetchAttendance(traineeId, section){
-  return await apiCall({ action:"attendance", trainee: String(traineeId), section: String(section) });
+  return await apiCall({ action:"attendance", trainee:String(traineeId), section:String(section) });
 }
 
-function calcSummaryFromWeeks(weeks, twoSessions){
+function calcSummary(weeks, twoSessions){
   let حاضر=0, غائب=0, مستأذن=0;
   for(let w=1; w<=16; w++){
-    const l1 = String(weeks?.[w]?.l1 || "").trim();
-    const l2 = twoSessions ? String(weeks?.[w]?.l2 || "").trim() : "";
-    const arr = [l1, l2].filter(Boolean);
+    const a = String(weeks?.[w]?.l1 || "").trim();
+    const b = twoSessions ? String(weeks?.[w]?.l2 || "").trim() : "";
+    const arr = [a,b].filter(Boolean);
     for(const v of arr){
       if(v==="حاضر") حاضر++;
       else if(v==="غائب") غائب++;
@@ -164,8 +167,27 @@ function calcSummaryFromWeeks(weeks, twoSessions){
   return {حاضر,غائب,مستأذن};
 }
 
-/** ✅ جدول شعبة واحدة */
-function renderSingleGroupTable(group, weeks){
+/** ✅ يرسم أزرار الشعب */
+function renderGroupBar(groups, active, onPick){
+  const bar = document.getElementById("groupBar");
+  if(!Array.isArray(groups) || groups.length <= 1){
+    bar.style.display = "none";
+    bar.innerHTML = "";
+    return;
+  }
+  bar.style.display = "flex";
+  bar.innerHTML = "";
+  groups.forEach(g=>{
+    const b = document.createElement("button");
+    b.className = "btn ghost" + (String(g)===String(active) ? " active" : "");
+    b.textContent = "شعبة " + g;
+    b.onclick = ()=> onPick(g);
+    bar.appendChild(b);
+  });
+}
+
+/** ✅ جدول شعبة عادية (لقاء واحد) */
+function renderSingleTable(group, weeks){
   const table = document.getElementById("attTable");
   table.innerHTML = `
     <thead>
@@ -178,11 +200,11 @@ function renderSingleGroupTable(group, weeks){
       ${
         Array.from({length:16},(_,i)=>{
           const w=i+1;
-          const v = safeStatus(weeks?.[w]?.l1);
-          const cls = statusClass(v);
+          const v=safeStatus(weeks?.[w]?.l1);
+          const c=statusClass(v);
           return `<tr>
             <td>${escapeHtml("الأسبوع " + w)}</td>
-            <td class="status ${cls}">${escapeHtml(v)}</td>
+            <td class="status ${c}">${escapeHtml(v)}</td>
           </tr>`;
         }).join("")
       }
@@ -190,7 +212,7 @@ function renderSingleGroupTable(group, weeks){
   `;
 }
 
-/** ✅ 63107 لقاءين */
+/** ✅ جدول 63107 (لقاءين) */
 function renderTwoSessionsTable(weeks){
   const table = document.getElementById("attTable");
   table.innerHTML = `
@@ -205,9 +227,9 @@ function renderTwoSessionsTable(weeks){
       ${
         Array.from({length:16},(_,i)=>{
           const w=i+1;
-          const v1 = safeStatus(weeks?.[w]?.l1);
-          const v2 = safeStatus(weeks?.[w]?.l2);
-          const c1 = statusClass(v1), c2 = statusClass(v2);
+          const v1=safeStatus(weeks?.[w]?.l1);
+          const v2=safeStatus(weeks?.[w]?.l2);
+          const c1=statusClass(v1), c2=statusClass(v2);
           return `<tr>
             <td>${escapeHtml("الأسبوع " + w)}</td>
             <td class="status ${c1}">${escapeHtml(v1)}</td>
@@ -219,33 +241,30 @@ function renderTwoSessionsTable(weeks){
   `;
 }
 
-/** ✅ مقارنة شعبتين: الأسبوع | شعبة1 | شعبة2 */
-function renderTwoGroupsCompareTable(g1, w1, g2, w2){
-  const table = document.getElementById("attTable");
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th style="min-width:140px">الأسبوع</th>
-        <th style="min-width:140px">شعبة ${escapeHtml(g1)}</th>
-        <th style="min-width:140px">شعبة ${escapeHtml(g2)}</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${
-        Array.from({length:16},(_,i)=>{
-          const w=i+1;
-          const v1 = safeStatus(w1?.[w]?.l1);
-          const v2 = safeStatus(w2?.[w]?.l1);
-          const c1 = statusClass(v1), c2 = statusClass(v2);
-          return `<tr>
-            <td>${escapeHtml("الأسبوع " + w)}</td>
-            <td class="status ${c1}">${escapeHtml(v1)}</td>
-            <td class="status ${c2}">${escapeHtml(v2)}</td>
-          </tr>`;
-        }).join("")
-      }
-    </tbody>
-  `;
+async function loadForGroup(s, group){
+  document.getElementById("summary").textContent = "جار التحميل...";
+  showMsg("", false);
+  document.getElementById("tableWrap").style.display = "none";
+
+  const res = await fetchAttendance(s.traineeId, group);
+  console.log("ATT_RES", group, res);
+
+  if(!res.ok){
+    document.getElementById("summary").textContent = "—";
+    showMsg(res.message || "تعذر جلب الحضور", true);
+    return;
+  }
+
+  const isTwo = String(group) === "63107";
+  const sum = calcSummary(res.weeks, isTwo);
+  document.getElementById("summary").textContent =
+    `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
+
+  if(isTwo) renderTwoSessionsTable(res.weeks);
+  else renderSingleTable(group, res.weeks);
+
+  document.getElementById("tableWrap").style.display = "";
+  showMsg("تم تحميل الحضور بنجاح.", false);
 }
 
 (async function init(){
@@ -253,77 +272,31 @@ function renderTwoGroupsCompareTable(g1, w1, g2, w2){
   if(!s) return;
 
   document.getElementById("who").textContent = s.name || "متدرب";
-  document.getElementById("summary").textContent = "جار التحميل...";
-  showMsg("", false);
 
-  // ✅ أهم سطر: نجيب الشعبتين حتى لو index قديم
-  s = await ensureGroupsInSession(s);
+  // ✅ اجلب الشعب من getProfile إن لم تكن موجودة
+  s = await ensureGroups(s);
 
   const groups = Array.isArray(s.groups) && s.groups.length ? s.groups : (s.group ? [s.group] : []);
-  const primary = s.primaryGroup || s.group || groups[0] || "";
+  const active = String(s.primaryGroup || s.group || groups[0] || "");
 
-  // عرض الميتا
+  // meta يعرض كل الشعب
   document.getElementById("meta").textContent =
     `الرقم: ${s.traineeId} • الشُعب: ${groups.join(" ، ") || "-"}`;
 
-  // ✅ إذا شعبة واحدة
-  if(groups.length <= 1){
-    const g = primary || groups[0] || "";
-    const res = await fetchAttendance(s.traineeId, g);
-    console.log("ATT_RES", res);
+  // ✅ شريط الشعب
+  renderGroupBar(groups, active, async (g)=>{
+    // نخزن اختيار المستخدم (اختياري) بدون كسر القديم
+    s.primaryGroup = String(g);
+    s.group = String(g);
+    localStorage.setItem("edu_session", JSON.stringify(s));
 
-    if(!res.ok){
-      document.getElementById("summary").textContent = "—";
-      showMsg(res.message || "تعذر جلب الحضور", true);
-      return;
-    }
+    renderGroupBar(groups, g, async ()=>{});
+    await loadForGroup(s, g);
+    renderGroupBar(groups, g, arguments.callee);
+  });
 
-    if(String(g)==="63107"){
-      const sum = calcSummaryFromWeeks(res.weeks, true);
-      document.getElementById("summary").textContent = `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
-      renderTwoSessionsTable(res.weeks);
-    }else{
-      const sum = calcSummaryFromWeeks(res.weeks, false);
-      document.getElementById("summary").textContent = `حاضر ${sum.حاضر} • غائب ${sum.غائب} • مستأذن ${sum.مستأذن}`;
-      renderSingleGroupTable(g, res.weeks);
-    }
-
-    document.getElementById("tableWrap").style.display = "";
-    showMsg("تم تحميل الحضور بنجاح.", false);
-    return;
-  }
-
-  // ✅ إذا شعبتين: عرض مقارنة
-  const g1 = String(groups[0]);
-  const g2 = String(groups[1]);
-
-  const [r1, r2] = await Promise.all([
-    fetchAttendance(s.traineeId, g1),
-    fetchAttendance(s.traineeId, g2)
-  ]);
-
-  console.log("ATT_RES_G1", r1);
-  console.log("ATT_RES_G2", r2);
-
-  if(!r1.ok || !r2.ok){
-    document.getElementById("summary").textContent = "—";
-    showMsg(
-      (!r1.ok ? (`شعبة ${g1}: ${r1.message || "خطأ"}`) : "") +
-      (!r2.ok ? (` • شعبة ${g2}: ${r2.message || "خطأ"}`) : "")
-    , true);
-    return;
-  }
-
-  const s1 = calcSummaryFromWeeks(r1.weeks, false);
-  const s2 = calcSummaryFromWeeks(r2.weeks, false);
-
-  document.getElementById("summary").textContent =
-    `حاضر ${s1.حاضر + s2.حاضر} • غائب ${s1.غائب + s2.غائب} • مستأذن ${s1.مستأذن + s2.مستأذن}`;
-
-  renderTwoGroupsCompareTable(g1, r1.weeks, g2, r2.weeks);
-
-  document.getElementById("tableWrap").style.display = "";
-  showMsg("تم تحميل الحضور للشعبتين بنجاح.", false);
+  // تحميل أول شعبة
+  await loadForGroup(s, active);
 })();
 </script>
 </body>
