@@ -27,7 +27,6 @@
     .ok{color:#0a7a3b}
     .wrap{overflow:auto}
 
-    /* ✅ شريط اختيار الشعبة */
     .groupbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     .groupbar .btn{min-width:120px}
     .btn.active{outline:2px solid #111}
@@ -63,12 +62,9 @@
 </div>
 
 <script>
-/** ✅ Worker Proxy */
 const API_URL = "https://tvtc-exam-api.ensancom.workers.dev/";
 
-function getSession(){
-  try{ return JSON.parse(localStorage.getItem("edu_session")||"null"); }catch(e){ return null; }
-}
+function getSession(){ try{ return JSON.parse(localStorage.getItem("edu_session")||"null"); }catch(e){ return null; } }
 function requireSession(){
   const s = getSession();
   if(!s || !s.traineeId){
@@ -88,8 +84,6 @@ function escapeHtml(s){
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
 }
-
-/** ✅ API Call (Self-contained) */
 async function apiCall(payload){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 12000);
@@ -104,13 +98,9 @@ async function apiCall(payload){
     try{ return JSON.parse(text); }
     catch(e){ return { ok:false, message:"الخادم ردّ برد غير JSON", raw:text.slice(0,250) }; }
   }catch(e){
-    if(String(e).includes("AbortError")){
-      return { ok:false, message:"Timeout: الخادم لم يستجب خلال 12 ثانية." };
-    }
-    return { ok:false, message:"فشل الاتصال بالخادم: " + String(e) };
-  }finally{
-    clearTimeout(timer);
-  }
+    if(String(e).includes("AbortError")) return { ok:false, message:"Timeout خلال 12 ثانية." };
+    return { ok:false, message:"فشل الاتصال: " + String(e) };
+  }finally{ clearTimeout(timer); }
 }
 
 function statusClass(v){
@@ -138,24 +128,27 @@ function calcSummaryFromWeeks(weeks, twoSessions){
   return {حاضر,غائب,مستأذن};
 }
 
-/** ✅ إذا session ما فيها groups نجيبها من getProfile */
-async function ensureGroups(s){
-  if(Array.isArray(s.groups) && s.groups.length) return s;
-
+async function ensureProfileAndGroups(s){
+  // ✅ دائمًا نجرب getProfile لتحديث الاسم والشعب (بدون كسر القديم)
   const p = await apiCall({ action:"getProfile", traineeId: String(s.traineeId||"") });
+  console.log("PROFILE_RES", p);
 
-  if(p && p.ok && p.found && Array.isArray(p.groups) && p.groups.length){
-    s.groups = p.groups;
-    s.primaryGroup = p.primaryGroup || p.groups[0];
+  if(p && p.ok && p.found){
+    if(p.name) s.name = String(p.name).trim();
+    const groups = Array.isArray(p.groups) ? p.groups : [];
+    const pg = String(p.primaryGroup || groups[0] || "").trim();
 
-    // توافق قديم
-    s.group = s.primaryGroup;
+    if(groups.length) s.groups = groups;
+    if(pg) {
+      s.primaryGroup = pg;
+      s.group = pg; // توافق قديم
+    }
 
     localStorage.setItem("edu_session", JSON.stringify(s));
     return s;
   }
 
-  // fallback: شعبة واحدة
+  // fallback: لو session القديم فيه group
   const g = String(s.group||"").trim();
   if(g){
     s.groups = [g];
@@ -165,7 +158,6 @@ async function ensureGroups(s){
   return s;
 }
 
-/** ✅ Attendance call (matches your GAS: action=attendance, accepts traineeId/section) */
 async function fetchAttendance(traineeId, section){
   return await apiCall({
     action: "attendance",
@@ -246,6 +238,13 @@ function renderTwoSessionsTable(weeks){
 }
 
 async function loadForGroup(s, group){
+  if(!group){
+    document.getElementById("summary").textContent = "—";
+    document.getElementById("tableWrap").style.display = "none";
+    showMsg("لا توجد شعبة لهذا المتدرب. تأكد من تعبئة F و G في شيت المتدربين.", true);
+    return;
+  }
+
   document.getElementById("summary").textContent = "جار التحميل...";
   showMsg("", false);
   document.getElementById("tableWrap").style.display = "none";
@@ -275,12 +274,12 @@ async function loadForGroup(s, group){
   let s = requireSession();
   if(!s) return;
 
-  // اعرض اسم المتدرب من session (إذا لم يحدث تسجيل دخول جديد سيظهر "متدرب")
   document.getElementById("who").textContent = s.name || "متدرب";
-  document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشُعب: ...`;
+  document.getElementById("meta").textContent = `الرقم: ${s.traineeId} • الشُعب: -`;
   document.getElementById("summary").textContent = "جار التحميل...";
 
-  s = await ensureGroups(s);
+  // ✅ الأهم: نجيب الاسم والشُعب من getProfile
+  s = await ensureProfileAndGroups(s);
 
   const groups = Array.isArray(s.groups) && s.groups.length ? s.groups : (s.group ? [s.group] : []);
   const active = String(s.primaryGroup || s.group || groups[0] || "");
@@ -293,7 +292,6 @@ async function loadForGroup(s, group){
     s.primaryGroup = String(g);
     s.group = String(g);
     localStorage.setItem("edu_session", JSON.stringify(s));
-
     renderGroupBar(groups, g, arguments.callee);
     await loadForGroup(s, g);
   });
